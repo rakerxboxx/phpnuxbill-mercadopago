@@ -1,210 +1,61 @@
 <?php
 
+require __DIR__ . '/vendor/autoload.php';
 
-/**
- * PHP Mikrotik Billing (https://github.com/hotspotbilling/phpnuxbill/)
- *
- * Payment Gateway paypal.com
- *
- * created by @ibnux <me@ibnux.com>
- *
- **/
+use MercadoPago\SDK;
 
+// Configuração do Mercado Pago
+define('MERCADO_PAGO_ACCESS_TOKEN', 'SUA_ACCESS_TOKEN_AQUI');
+SDK::setAccessToken(MERCADO_PAGO_ACCESS_TOKEN);
 
-function paypal_validate_config()
-{
-    global $config;
-    if (empty($config['paypal_client_id']) || empty($config['paypal_secret_key'])) {
-        sendTelegram("PayPal payment gateway not configured");
-        r2(U . 'order/package', 'w', "Admin has not yet setup Paypal payment gateway, please tell admin");
-    }
-}
+// Captura os dados enviados via POST
+$payment_data = [
+    "transaction_amount" => $_POST['amount'] ?? 0.00, // Valor do pagamento
+    "token" => $_POST['token'] ?? '', // Token gerado pelo Mercado Pago
+    "description" => "Pagamento PHPNuxBill",
+    "payment_method_id" => $_POST['payment_method_id'] ?? '',
+    "payer" => [
+        "email" => $_POST['email'] ?? 'email@exemplo.com'
+    ]
+];
 
-function paypal_show_config()
-{
-    global $ui;
-    $ui->assign('_title', 'Paypal - Payment Gateway');
-    $ui->assign('currency', json_decode(file_get_contents('system/paymentgateway/paypal_currency.json'), true));
-    $ui->display('paypal.tpl');
-}
+// Converte os dados para JSON
+$payment_json = json_encode($payment_data);
 
+// Envia os dados via cURL para a API do Mercado Pago
+$curl = curl_init();
 
-function paypal_save_config()
-{
-    global $admin, $_L;
-    $paypal_client_id = _post('paypal_client_id');
-    $paypal_secret_key = _post('paypal_secret_key');
-    $paypal_currency = _post('paypal_currency');
-    $d = ORM::for_table('tbl_appconfig')->where('setting', 'paypal_secret_key')->find_one();
-    if ($d) {
-        $d->value = $paypal_secret_key;
-        $d->save();
-    } else {
-        $d = ORM::for_table('tbl_appconfig')->create();
-        $d->setting = 'paypal_secret_key';
-        $d->value = $paypal_secret_key;
-        $d->save();
-    }
-    $d = ORM::for_table('tbl_appconfig')->where('setting', 'paypal_client_id')->find_one();
-    if ($d) {
-        $d->value = $paypal_client_id;
-        $d->save();
-    } else {
-        $d = ORM::for_table('tbl_appconfig')->create();
-        $d->setting = 'paypal_client_id';
-        $d->value = $paypal_client_id;
-        $d->save();
-    }
-    $d = ORM::for_table('tbl_appconfig')->where('setting', 'paypal_currency')->find_one();
-    if ($d) {
-        $d->value = $paypal_currency;
-        $d->save();
-    } else {
-        $d = ORM::for_table('tbl_appconfig')->create();
-        $d->setting = 'paypal_currency';
-        $d->value = $paypal_currency;
-        $d->save();
-    }
-    _log('[' . $admin['username'] . ']: Paypal ' . Lang::T('Settings_Saved_Successfully'), 'Admin', $admin['id']);
+curl_setopt_array($curl, [
+    CURLOPT_URL            => "https://api.mercadopago.com/v1/payments",
+    CURLOPT_CUSTOMREQUEST  => 'POST',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POSTFIELDS     => $payment_json,
+    CURLOPT_HTTPHEADER => [
+        'Authorization: Bearer ' . MERCADO_PAGO_ACCESS_TOKEN,
+        'Content-Type: application/json'
+    ]
+]);
 
-    r2(U . 'paymentgateway/paypal', 's', Lang::T('Settings_Saved_Successfully'));
-}
+$response = curl_exec($curl);
+$http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+curl_close($curl);
 
-function paypal_create_transaction($trx, $user)
-{
-    global $config;
-    $json = [
-        'intent' => 'CAPTURE',
-        'purchase_units' => [
-            [
-                'amount' => [
-                    'currency_code' => $config['paypal_currency'],
-                    'value' => strval($trx['price'])
-                ]
-            ]
-        ],
-        "application_context" => [
-            "return_url" => U . "order/view/" . $trx['id'] . '/check',
-            "cancel_url" => U . "order/view/" . $trx['id'],
-        ]
-    ];
+// Decodifica a resposta
+$response_data = json_decode($response, true);
 
-    $result = json_decode(
-        Http::postJsonData(
-            paypal_get_server() . 'checkout/orders',
-            $json,
-            [
-                'Prefer: return=minimal',
-                'PayPal-Request-Id: paypal_' . $trx['id'],
-                'Authorization: Bearer ' . paypalGetAccessToken()
-            ]
-        ),
-        true
-    );
-    if (!$result['id']) {
-        sendTelegram("paypal_create_transaction FAILED: \n\n" . json_encode($result, JSON_PRETTY_PRINT));
-        r2(U . 'order/package', 'e', "Failed to create Paypal transaction.");
-    }
-    $urlPayment = "";
-    foreach ($result['links'] as $link) {
-        if ($link['rel'] == 'approve') {
-            $urlPayment = $link['href'];
-            break;
-        }
-    }
-    $d = ORM::for_table('tbl_payment_gateway')
-        ->where('username', $user['username'])
-        ->where('status', 1)
-        ->find_one();
-    $d->gateway_trx_id = $result['id'];
-    $d->pg_url_payment = $urlPayment;
-    $d->pg_request = json_encode($result);
-    $d->expired_date = date('Y-m-d H:i:s', strtotime("+ 6 HOUR"));
-    $d->save();
-    header('Location: ' . $urlPayment);
-    exit();
-}
+// Verifica se o pagamento foi aprovado
+if ($http_code == 200 && isset($response_data['status']) && $response_data['status'] == 'approved') {
+    $order_id = $response_data['external_reference'] ?? 'N/A';
+    $amount = $response_data['transaction_amount'];
+    $payer_email = $response_data['payer']['email'];
 
-/*
-*/
+    // Registrar o pagamento no PHPNuxBill
+    include_once 'system/paymentgateway/functions.php';
+    process_payment($order_id, $amount, $payer_email);
 
-function paypal_payment_notification()
-{
-    // Not yet implemented
-    die('OK');
-}
-
-function paypal_get_status($trx, $user)
-{
-    $capture = [];
-    if (empty($trx->pg_paid_response)) {
-        $capture = paypal_capture_transaction($trx['gateway_trx_id']);
-    } else {
-        $capture = json_decode($trx->pg_paid_response, true)['paypal_capture'];
-        if (empty($capture)) {
-            $capture = paypal_capture_transaction($trx['gateway_trx_id']);
-        }
-    }
-    $result = json_decode(Http::getData(paypal_get_server() . 'checkout/orders/' . $trx['gateway_trx_id'], ['Authorization: Bearer ' . paypalGetAccessToken()]), true);
-    if (in_array($result['status'], ['APPROVED', 'COMPLETED']) && $trx['status'] != 2) {
-        if ($capture['status'] == 'COMPLETED' || ($capture['name'] == 'UNPROCESSABLE_ENTITY' && $capture['details'][0]['issue'] == 'ORDER_ALREADY_CAPTURED')) {
-            if (!Package::rechargeUser($user['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Paypal')) {
-                r2(U . "order/view/" . $trx['id'], 'd', "Failed to activate your Package, try again later.");
-            }
-            $result['paypal_capture'] = json_encode($capture);
-            $trx->pg_paid_response = json_encode($result);
-            $trx->payment_method = 'PAYPAL';
-            $trx->payment_channel = 'paypal';
-            $trx->paid_date = date('Y-m-d H:i:s', strtotime($result['updated']));
-            $trx->status = 2;
-            $trx->save();
-            r2(U . "order/view/" . $trx['id'], 's', "Transaction has been paid.");
-        } else {
-            r2(U . "order/view/" . $trx['id'], 'e', "Transaction Success, but not yet captured.");
-        }
-    } else if ($result['status'] == 'VOIDED') {
-        $trx->pg_paid_response = json_encode($result);
-        $trx->status = 3;
-        $trx->save();
-        r2(U . "order/view/" . $trx['id'], 'd', "Transaction expired.");
-    } else {
-        sendTelegram("xendit_get_status: unknown result\n\n" . json_encode($result, JSON_PRETTY_PRINT));
-        r2(U . "order/view/" . $trx['id'], 'w', "Transaction status :" . $result['status']);
-    }
-}
-
-function paypal_capture_transaction($trx_id)
-{
-    return json_decode(
-        Http::postJsonData(
-            paypal_get_server() . 'checkout/orders/' . $trx_id . '/capture',
-            [],
-            [
-                'PayPal-Partner-Attribution-Id: &lt;BN-Code&gt;',
-                'Authorization: Bearer ' . paypalGetAccessToken()
-            ]
-        ),
-        true
-    );
-}
-
-function paypalGetAccessToken()
-{
-    global $config;
-    $result = Http::postData(str_replace('v2', 'v1', paypal_get_server()) . 'oauth2/token', [
-        "grant_type" => "client_credentials"
-    ], [], $config['paypal_client_id'] . ":" . $config['paypal_secret_key']);
-    $json = json_decode($result, true);
-    return $json['access_token'];
-}
-
-
-function paypal_get_server()
-{
-    global $_app_stage;
-    if ($_app_stage == 'Live') {
-        return 'https://api-m.paypal.com/v2/';
-    } else {
-        return 'https://api-m.sandbox.paypal.com/v2/';
-    }
+    file_put_contents('payments.log', "Pagamento aprovado: Ordem $order_id, Valor $amount, Email $payer_email" . PHP_EOL, FILE_APPEND);
+    
+    echo json_encode(["status" => "success", "message" => "Pagamento aprovado!"]);
+} else {
+    echo json_encode(["status" => "error", "message" => $response_data['message'] ?? "Erro ao processar pagamento"]);
 }
