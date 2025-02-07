@@ -1,24 +1,30 @@
-# Payment Gateway [Paypal](https://paypal.me/ibnux)
+# Payment Gateway [Mercado Pago](https://www.mercadopago.com/)
 
-Payment Gateway [Paypal](https://paypal.me/ibnux) for PHPNuxBill
+Payment Gateway [Mercado Pago](https://www.mercadopago.com/) for PHPNuxBill
 
-[Download](https://github.com/hotspotbilling/phpnuxbill-paypal/archive/refs/heads/main.zip)
+[Download](https://github.com/hotspotbilling/phpnuxbill-mercadopago/archive/refs/heads/main.zip)
 
 ## Installation
 
-Copy **paypal.php** and **paypal_currency.json** to folder **system/paymentgateway/**
+Copy **mercadopago.php** and **mercadopago_currency.json** to folder **system/paymentgateway/**
 
-Copy **ui/paypal.tpl** to folder **system/paymentgateway/ui/**
+Copy **ui/mercadopago.tpl** to folder **system/paymentgateway/ui/**
 
+## Configuration
+
+1. Get your **Client ID** and **Client Secret** from [Mercado Pago Developer Panel](https://www.mercadopago.com.br/developers/panel).
+2. Configure the webhook URL in Mercado Pago:
+3. Enable the Mercado Pago payment method in PHPNuxBill settings.
 
 ## Author
 
-[Ibnu Maksum aka ibnux](https://github.com/ibnux)
+Adapted from [Ibnu Maksum aka ibnux](https://github.com/ibnux)  
+Updated for Mercado Pago integration by [Your Name]
 
 ## Donations
 
 ### International
 [Github Sponsor](https://github.com/sponsors/ibnux)
 
-### Indonesia
-[Trakteer iBNuX](https://trakteer.id/ibnux)
+### Brazil
+[Mercado Pago Donations](https://www.mercadopago.com.br/)
