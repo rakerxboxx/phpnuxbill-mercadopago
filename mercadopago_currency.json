@@ -1,0 +1,9 @@
+[
+    { "id": "ARS", "name": "Argentine Peso" },
+    { "id": "BRL", "name": "Brazilian Real" },
+    { "id": "CLP", "name": "Chilean Peso" },
+    { "id": "COP", "name": "Colombian Peso" },
+    { "id": "MXN", "name": "Mexican Peso" },
+    { "id": "PEN", "name": "Peruvian Sol" },
+    { "id": "UYU", "name": "Uruguayan Peso" }
+]
