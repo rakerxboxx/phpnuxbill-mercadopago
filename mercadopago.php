@@ -1,61 +1,73 @@
 <?php
 
-require __DIR__ . '/vendor/autoload.php';
+/**
+ * Mercado Pago Payment Gateway Integration
+ * Adaptado do UMSPay para Mercado Pago
+ **/
 
-use MercadoPago\SDK;
+function mercadopago_validate_config()
+{
+    global $config;
+    if (empty($config['mercadopago_access_token'])) {
+        sendTelegram("Mercado Pago payment gateway not configured");
+        r2(U . 'order/package', 'w', Lang::T("Admin has not yet setup Mercado Pago payment gateway, please tell admin"));
+    }
+}
 
-// Configuração do Mercado Pago
-define('MERCADO_PAGO_ACCESS_TOKEN', 'SUA_ACCESS_TOKEN_AQUI');
-SDK::setAccessToken(MERCADO_PAGO_ACCESS_TOKEN);
+function mercadopago_show_config()
+{
+    global $ui, $config;
+    $ui->assign('_title', 'Mercado Pago - Payment Gateway - ' . $config['CompanyName']);
+    $ui->display('mercadopago.tpl');
+}
 
-// Captura os dados enviados via POST
-$payment_data = [
-    "transaction_amount" => $_POST['amount'] ?? 0.00, // Valor do pagamento
-    "token" => $_POST['token'] ?? '', // Token gerado pelo Mercado Pago
-    "description" => "Pagamento PHPNuxBill",
-    "payment_method_id" => $_POST['payment_method_id'] ?? '',
-    "payer" => [
-        "email" => $_POST['email'] ?? 'email@exemplo.com'
-    ]
-];
+function mercadopago_save_config()
+{
+    global $admin, $_L;
+    $access_token = _post('access_token');
 
-// Converte os dados para JSON
-$payment_json = json_encode($payment_data);
+    $checkAccessToken = ORM::for_table('tbl_appconfig')->where('setting', 'mercadopago_access_token')->find_one();
+    if ($checkAccessToken) {
+        $checkAccessToken->value = $access_token;
+        $checkAccessToken->save();
+    } else {
+        $newSetting = ORM::for_table('tbl_appconfig')->create();
+        $newSetting->setting = 'mercadopago_access_token';
+        $newSetting->value = $access_token;
+        $newSetting->save();
+    }
 
-// Envia os dados via cURL para a API do Mercado Pago
-$curl = curl_init();
+    r2(U . 'settings/payment_gateways', 's', $_L['Settings Saved Successfully']);
+}
 
-curl_setopt_array($curl, [
-    CURLOPT_URL            => "https://api.mercadopago.com/v1/payments",
-    CURLOPT_CUSTOMREQUEST  => 'POST',
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POSTFIELDS     => $payment_json,
-    CURLOPT_HTTPHEADER => [
-        'Authorization: Bearer ' . MERCADO_PAGO_ACCESS_TOKEN,
-        'Content-Type: application/json'
-    ]
-]);
+function mercadopago_process_payment($invoice_id, $amount)
+{
+    global $config;
+    $access_token = $config['mercadopago_access_token'];
 
-$response = curl_exec($curl);
-$http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-curl_close($curl);
-
-// Decodifica a resposta
-$response_data = json_decode($response, true);
-
-// Verifica se o pagamento foi aprovado
-if ($http_code == 200 && isset($response_data['status']) && $response_data['status'] == 'approved') {
-    $order_id = $response_data['external_reference'] ?? 'N/A';
-    $amount = $response_data['transaction_amount'];
-    $payer_email = $response_data['payer']['email'];
-
-    // Registrar o pagamento no PHPNuxBill
-    include_once 'system/paymentgateway/functions.php';
-    process_payment($order_id, $amount, $payer_email);
-
-    file_put_contents('payments.log', "Pagamento aprovado: Ordem $order_id, Valor $amount, Email $payer_email" . PHP_EOL, FILE_APPEND);
+    $url = "https://api.mercadopago.com/v1/payments";
     
-    echo json_encode(["status" => "success", "message" => "Pagamento aprovado!"]);
-} else {
-    echo json_encode(["status" => "error", "message" => $response_data['message'] ?? "Erro ao processar pagamento"]);
+    $headers = [
+        "Authorization: Bearer " . $access_token,
+        "Content-Type: application/json"
+    ];
+
+    $data = [
+        "transaction_amount" => (float) $amount,
+        "description" => "Invoice #$invoice_id",
+        "payment_method_id" => "pix",
+        "payer" => [
+            "email" => "cliente@example.com"
+        ]
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    return json_decode($response, true);
 }
