@@ -25,8 +25,8 @@ Updated for Mercado Pago integration by [SpacoNett- Rafael Augusto]
 
 ## Donations
 
-### International
-[Github Sponsor](https://github.com/sponsors/ibnux)
+### Contact
+[whatsapp](https://wa.me/message/CODMJF2UORDBC1)
 
 ### Brazil
 [Mercado Pago Donations](https://www.mercadopago.com.br/)
