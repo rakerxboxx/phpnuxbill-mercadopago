@@ -20,7 +20,7 @@ Copy **ui/mercadopago.tpl** to folder **system/paymentgateway/ui/**
 ## Author
 
 Adapted from [Ibnu Maksum aka ibnux](https://github.com/ibnux)  
-Updated for Mercado Pago integration by [Your Name]
+Updated for Mercado Pago integration by [SpacoNett- Rafael Augusto]
 
 ## Donations
 
