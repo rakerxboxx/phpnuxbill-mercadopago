@@ -180,7 +180,7 @@ function mercadopago_create_transaction($trx, $user)
 
 function mercadopago_payment_notification()
 {
-  global $config;
+  global $config, $_c;
   
   // Get the payment data from Mercado Pago
   $data = file_get_contents('php://input');
@@ -190,6 +190,7 @@ function mercadopago_payment_notification()
   $logFile = "MercadoPagoCallback.json";
   $log = fopen($logFile, "a");
   fwrite($log, $data . "\n");
+  fwrite($log, "Processing time: " . date('Y-m-d H:i:s') . "\n");
   fclose($log);
   
   // Process the notification
@@ -213,6 +214,11 @@ function mercadopago_payment_notification()
     curl_close($curl);
     $payment_data = json_decode($response, true);
     
+    // Log the payment data
+    $log = fopen($logFile, "a");
+    fwrite($log, "Payment data: " . $response . "\n");
+    fclose($log);
+    
     if (isset($payment_data['external_reference']) && isset($payment_data['status'])) {
       $trx_id = $payment_data['external_reference'];
       $status = $payment_data['status'];
@@ -229,6 +235,9 @@ function mercadopago_payment_notification()
           ->find_one();
           
         if (!$trx) {
+          $log = fopen($logFile, "a");
+          fwrite($log, "Transaction not found for payment_id: " . $payment_id . "\n");
+          fclose($log);
           header("HTTP/1.1 200 OK");
           exit;
         }
@@ -236,32 +245,145 @@ function mercadopago_payment_notification()
       
       // Process based on payment status
       if ($status == 'approved') {
-        // Payment approved, activate the package
+        // Get user details
         $user = ORM::for_table('tbl_customers')
           ->where('username', $trx['username'])
           ->find_one();
           
-        if (!Package::rechargeUser($user['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Mercado Pago PIX')) {
-          _log("Mercado Pago PIX Payment Successful, But Failed to activate Package");
+        if (!$user) {
+          $log = fopen($logFile, "a");
+          fwrite($log, "User not found for username: " . $trx['username'] . "\n");
+          fclose($log);
+          header("HTTP/1.1 200 OK");
+          exit;
         }
         
-        _log("Mercado Pago PIX Payment Successful");
-        $trx->pg_paid_response = json_encode($payment_data);
+        // Get plan details
+        $plan = ORM::for_table('tbl_plans')
+          ->where('id', $trx['plan_id'])
+          ->find_one();
+          
+        if (!$plan) {
+          $log = fopen($logFile, "a");
+          fwrite($log, "Plan not found for id: " . $trx['plan_id'] . "\n");
+          fclose($log);
+          header("HTTP/1.1 200 OK");
+          exit;
+        }
+        
+        // Update payment gateway record
+        $trx->pg_paid_response = $response;
         $trx->payment_method = 'Mercado Pago';
         $trx->payment_channel = 'PIX';
         $trx->paid_date = date('Y-m-d H:i:s');
-        $trx->status = 2;
+        $trx->status = 2; // Set status to paid
         $trx->save();
+        
+        // Log the transaction update
+        $log = fopen($logFile, "a");
+        fwrite($log, "Transaction updated: " . $trx['id'] . " to status 2\n");
+        fclose($log);
+        
+        // Check if user already has an active package
+        $d = ORM::for_table('tbl_user_recharges')
+          ->where('username', $user['username'])
+          ->find_one();
+          
+        // Calculate expiration date based on plan
+        $date_now = date("Y-m-d H:i:s");
+        $expiration = date("Y-m-d H:i:s", strtotime($date_now . " +" . $plan['validity'] . " " . $plan['validity_unit']));
+        
+        // If user already has a package, update it
+        if ($d) {
+          // Check if it's an extension of current package
+          if ($d['plan_id'] == $plan['id'] && strtotime($d['expiration']) > strtotime($date_now)) {
+            $expiration = date("Y-m-d H:i:s", strtotime($d['expiration'] . " +" . $plan['validity'] . " " . $plan['validity_unit']));
+          }
+          
+          // Update the user recharge record
+          $d->plan_id = $plan['id'];
+          $d->namebp = $plan['name_plan'];
+          $d->recharged_on = $date_now;
+          $d->expiration = $expiration;
+          $d->time = $plan['validity'];
+          $d->status = "on";
+          $d->save();
+          
+          // Log the recharge update
+          $log = fopen($logFile, "a");
+          fwrite($log, "Updated existing recharge for user: " . $user['username'] . "\n");
+          fclose($log);
+        } else {
+          // Create a new user recharge record
+          $d = ORM::for_table('tbl_user_recharges')->create();
+          $d->customer_id = $user['id'];
+          $d->username = $user['username'];
+          $d->plan_id = $plan['id'];
+          $d->namebp = $plan['name_plan'];
+          $d->recharged_on = $date_now;
+          $d->expiration = $expiration;
+          $d->time = $plan['validity'];
+          $d->status = "on";
+          $d->save();
+          
+          // Log the new recharge
+          $log = fopen($logFile, "a");
+          fwrite($log, "Created new recharge for user: " . $user['username'] . "\n");
+          fclose($log);
+        }
+        
+        // Update user's balance and status
+        $user->balance = $user['balance'] + $plan['price'];
+        $user->status = "on";
+        $user->save();
+        
+        // Log the user update
+        $log = fopen($logFile, "a");
+        fwrite($log, "Updated user status and balance: " . $user['username'] . "\n");
+        fclose($log);
+        
+        // Now try to activate the package using the Package class
+        if (!Package::rechargeUser($user['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Mercado Pago PIX')) {
+          _log("Mercado Pago PIX Payment Successful, But Failed to activate Package");
+          $log = fopen($logFile, "a");
+          fwrite($log, "Failed to activate package via Package::rechargeUser\n");
+          fclose($log);
+        } else {
+          _log("Mercado Pago PIX Payment Successful");
+          $log = fopen($logFile, "a");
+          fwrite($log, "Successfully activated package via Package::rechargeUser\n");
+          fclose($log);
+        }
+        
+        // Send Telegram notification about successful payment
+        $message = "💰 *Pagamento PIX Aprovado!*\n";
+        $message .= "ID: `".$trx['id']."`\n";
+        $message .= "Usuário: `".$trx['username']."`\n";
+        $message .= "Plano: `".$trx['plan_name']."`\n";
+        $message .= "Valor: `".$_c['currency_code']." ".$trx['price']."`\n";
+        $message .= "Data: `".date('d/m/Y H:i:s')."`\n";
+        $message .= "Método: Mercado Pago PIX\n";
+        $message .= "ID Pagamento: `".$payment_id."`";
+        sendTelegram($message);
+        
       } else if ($status == 'pending' || $status == 'in_process') {
         // Payment pending, update status
-        $trx->pg_paid_response = json_encode($payment_data);
+        $trx->pg_paid_response = $response;
         $trx->status = 1;
         $trx->save();
+        
+        $log = fopen($logFile, "a");
+        fwrite($log, "Transaction updated to pending status: " . $trx['id'] . "\n");
+        fclose($log);
       } else {
         // Payment failed or rejected
-        $trx->pg_paid_response = json_encode($payment_data);
+        $trx->pg_paid_response = $response;
         $trx->status = 3; // Failed status
         $trx->save();
+        
+        $log = fopen($logFile, "a");
+        fwrite($log, "Transaction updated to failed status: " . $trx['id'] . "\n");
+        fclose($log);
       }
     }
   }
@@ -274,10 +396,15 @@ function mercadopago_payment_notification()
 
 function mercadopago_get_status($trx, $user)
 {
-  global $config, $ui;
+  global $config, $ui, $_c;
   
-  // Check if the transaction is already paid
-  if ($trx['status'] == 2) {
+  // First, check the current status in the database
+  $current_trx = ORM::for_table('tbl_payment_gateway')
+    ->where('id', $trx['id'])
+    ->find_one();
+    
+  // If the transaction is already marked as paid in the database
+  if ($current_trx['status'] == 2) {
     r2(U . "order/view/" . $trx['id'], 's', Lang::T("Payment has been confirmed and your package is active."));
     return;
   }
@@ -288,7 +415,7 @@ function mercadopago_get_status($trx, $user)
     return;
   }
   
-  // Get payment details from Mercado Pago
+  // Get payment details from Mercado Pago API to ensure we have the latest status
   $payment_id = $trx['gateway_trx_id'];
   
   if (!empty($payment_id)) {
@@ -308,33 +435,131 @@ function mercadopago_get_status($trx, $user)
     curl_close($curl);
     $payment_data = json_decode($response, true);
     
-    // Update status if payment is approved
-    if (isset($payment_data['status']) && $payment_data['status'] == 'approved' && $trx['status'] != 2) {
-      // Payment approved, activate the package
-      if (!Package::rechargeUser($user['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Mercado Pago PIX')) {
-        _log("Mercado Pago PIX Payment Successful, But Failed to activate Package");
-      }
-      
-      _log("Mercado Pago PIX Payment Successful");
+    // Log the API check for debugging
+    $logFile = "MercadoPagoStatusCheck.json";
+    $log = fopen($logFile, "a");
+    fwrite($log, "Checking status for payment ID: " . $payment_id . "\n");
+    fwrite($log, "Response: " . $response . "\n");
+    fwrite($log, "Time: " . date('Y-m-d H:i:s') . "\n");
+    fclose($log);
+    
+    // If payment is approved according to Mercado Pago API
+    if (isset($payment_data['status']) && $payment_data['status'] == 'approved') {
+      // Get plan details
+      $plan = ORM::for_table('tbl_plans')
+        ->where('id', $trx['plan_id'])
+        ->find_one();
+        
+      // Update payment gateway record
       $trx->pg_paid_response = $response;
       $trx->payment_method = 'Mercado Pago';
       $trx->payment_channel = 'PIX';
       $trx->paid_date = date('Y-m-d H:i:s');
-      $trx->status = 2;
+      $trx->status = 2; // Set status to paid
       $trx->save();
       
+      // Calculate expiration date based on plan
+      $date_now = date("Y-m-d H:i:s");
+      $expiration = date("Y-m-d H:i:s", strtotime($date_now . " +" . $plan['validity'] . " " . $plan['validity_unit']));
+      
+      // Check if user already has an active package
+      $d = ORM::for_table('tbl_user_recharges')
+        ->where('username', $user['username'])
+        ->find_one();
+        
+      // If user already has a package, update it
+      if ($d) {
+        // Check if it's an extension of current package
+        if ($d['plan_id'] == $plan['id'] && strtotime($d['expiration']) > strtotime($date_now)) {
+          $expiration = date("Y-m-d H:i:s", strtotime($d['expiration'] . " +" . $plan['validity'] . " " . $plan['validity_unit']));
+        }
+        
+        // Update the user recharge record
+        $d->plan_id = $plan['id'];
+        $d->namebp = $plan['name_plan'];
+        $d->recharged_on = $date_now;
+        $d->expiration = $expiration;
+        $d->time = $plan['validity'];
+        $d->status = "on";
+        $d->save();
+      } else {
+        // Create a new user recharge record
+        $d = ORM::for_table('tbl_user_recharges')->create();
+        $d->customer_id = $user['id'];
+        $d->username = $user['username'];
+        $d->plan_id = $plan['id'];
+        $d->namebp = $plan['name_plan'];
+        $d->recharged_on = $date_now;
+        $d->expiration = $expiration;
+        $d->time = $plan['validity'];
+        $d->status = "on";
+        $d->save();
+      }
+      
+      // Update user's balance and status
+      $user->balance = $user['balance'] + $plan['price'];
+      $user->status = "on";
+      $user->save();
+      
+      // Now try to activate the package using the Package class
+      if (!Package::rechargeUser($user['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Mercado Pago PIX')) {
+        _log("Mercado Pago PIX Payment Successful, But Failed to activate Package");
+      } else {
+        _log("Mercado Pago PIX Payment Successful");
+      }
+      
+      // Send Telegram notification about successful payment
+      $message = "💰 *Pagamento PIX Aprovado!*\n";
+      $message .= "ID: `".$trx['id']."`\n";
+      $message .= "Usuário: `".$trx['username']."`\n";
+      $message .= "Plano: `".$trx['plan_name']."`\n";
+      $message .= "Valor: `".$_c['currency_code']." ".$trx['price']."`\n";
+      $message .= "Data: `".date('d/m/Y H:i:s')."`\n";
+      $message .= "Método: Mercado Pago PIX\n";
+      $message .= "ID Pagamento: `".$payment_id."`";
+      sendTelegram($message);
+      
+      // Redirect to success page
       r2(U . "order/view/" . $trx['id'], 's', Lang::T("Payment has been confirmed and your package is active."));
       return;
     }
   }
+  
+  // If we reach here, the payment is still pending or we couldn't verify it
+  // Let's check if we need to show the PIX page or a status page
   
   // Get PIX data from the transaction
   $pix_data = json_decode($trx['pg_paid_response'], true);
   $qr_code = isset($pix_data['qr_code']) ? $pix_data['qr_code'] : '';
   $qr_code_base64 = isset($pix_data['qr_code_base64']) ? $pix_data['qr_code_base64'] : '';
   
-  // If we have PIX data, show the payment page again
+  // If we have PIX data, show the payment page with status information
   if (!empty($qr_code) && !empty($qr_code_base64)) {
+    // Check if we have payment data in the response
+    $payment_status = "pending";
+    $payment_message = Lang::T("Your payment is being processed. Please wait or scan the QR code to pay.");
+    
+    if (isset($payment_data['status'])) {
+      switch ($payment_data['status']) {
+        case 'pending':
+          $payment_status = "pending";
+          $payment_message = Lang::T("Your payment is pending. Please complete the payment.");
+          break;
+        case 'in_process':
+          $payment_status = "processing";
+          $payment_message = Lang::T("Your payment is being processed. Please wait.");
+          break;
+        case 'rejected':
+          $payment_status = "rejected";
+          $payment_message = Lang::T("Your payment was rejected. Please try again.");
+          break;
+        default:
+          $payment_status = "unknown";
+          $payment_message = Lang::T("Payment status unknown. Please contact support if you've already paid.");
+      }
+    }
+    
+    // Display the PIX payment page with status information
     $ui->assign('_title', 'PIX Payment - ' . $config['CompanyName']);
     $ui->assign('trx', $trx);
     $ui->assign('user', $user);
@@ -343,6 +568,8 @@ function mercadopago_get_status($trx, $user)
     $ui->assign('qr_code_base64', $qr_code_base64);
     $ui->assign('expiration_date', $trx['expired_date']);
     $ui->assign('trx_id', $trx['id']);
+    $ui->assign('payment_status', $payment_status);
+    $ui->assign('payment_message', $payment_message);
     
     $ui->display('mercadopago_pix.tpl');
     exit;
