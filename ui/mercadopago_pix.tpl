@@ -1,4 +1,4 @@
-{include file="sections/header.tpl"}
+{include file="customer/header.tpl"}
 
 <div class="row">
     <div class="col-sm-12 col-md-12">
@@ -8,12 +8,19 @@
             </div>
             <div class="panel-body">
                 <div class="alert alert-info">
-                    <strong>Detalhes do Pagamento</strong><br>
+                    <strong>3Detalhes do Pagamento</strong><br>
                     Plano: {$trx['plan_name']}<br>
                     Valor: {$_c['currency_code']} {$trx['price']}<br>
                     ID da Transação: #{$trx_id}<br>
                     Expira em: {$expiration_date}
                 </div>
+                
+                {if isset($payment_status) && $payment_status != "pending"}
+                    <div class="alert alert-{if $payment_status == "approved"}success{elseif $payment_status == "processing"}warning{else}danger{/if}">
+                        <strong>Status do Pagamento: {$payment_status|capitalize}</strong><br>
+                        {$payment_message}
+                    </div>
+                {/if}
                 
                 <div class="row">
                     <div class="col-md-6 text-center">
@@ -72,8 +79,8 @@ function copyPixCode() {
 // Auto-refresh to check payment status
 setTimeout(function() {
     window.location.href = "{$_url}order/view/{$trx_id}";
-}, 60000); // Refresh after 1 minute
+}, 30000); // Refresh after 1 minute
 </script>
 
-{include file="sections/footer.tpl"}
+{include file="customer/footer.tpl"}
 
