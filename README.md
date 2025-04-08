@@ -2,7 +2,8 @@
 
 Payment Gateway [Mercado Pago](https://www.mercadopago.com/) for PHPNuxBill
 
-[Download](https://github.com/hotspotbilling/phpnuxbill-mercadopago/archive/refs/heads/main.zip)
+[Download](https://github.com/rakerxboxx/phpnuxbill-mercadopago/archive/refs/heads/main.zip)
+
 
 ## Installation
 
