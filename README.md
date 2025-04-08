@@ -26,7 +26,7 @@ Updated for Mercado Pago integration by [SpacoNett- Rafael Augusto]
 ## Donations
 
 ### Contact
-[whatsapp](https://wa.me/message/CODMJF2UORDBC1)
+[Whatsapp](https://wa.me/message/CODMJF2UORDBC1)
 
 ### Brazil
 [Mercado Pago Donations](https://www.mercadopago.com.br/)
