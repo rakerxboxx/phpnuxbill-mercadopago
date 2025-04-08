@@ -9,7 +9,8 @@ Payment Gateway [Mercado Pago](https://www.mercadopago.com/) for PHPNuxBill
 
 Copy **mercadopago.php** and **mercadopago_currency.json** to folder **system/paymentgateway/**
 
-Copy **ui/mercadopago.tpl** to folder **system/paymentgateway/ui/**
+Copy **ui/mercadopago.tpl** **mercadopago_pix.tpl**
+ to folder **system/paymentgateway/ui/**
 
 ## Configuration
 
