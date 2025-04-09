@@ -23,9 +23,7 @@ Copy **mercadopago.tpl** **mercadopago_pix.tpl**
 Adapted from [Ibnu Maksum aka ibnux](https://github.com/ibnux)  
 Updated for Mercado Pago integration by [SpacoNett- Rafael Augusto]
 
-## Donations
-
-
+## Donations PIX
 
 
 00020101021126580014br.gov.bcb.pix013691cff37f-56f4-450a-8987-8c52a0b608ae5204000053039865802BR5921RAFAEL A DA CONCEICAO6009ARAPIRACA62070503***6304A460
