@@ -24,7 +24,7 @@ Adapted from [Ibnu Maksum aka ibnux](https://github.com/ibnux)
 Updated for Mercado Pago integration by [SpacoNett- Rafael Augusto]
 
 ## Donations PIX
-![QRCode-PIX-MercadoPago](https://github.com/user-attachments/assets/05ebcd53-9043-4fed-88b5-5be6a515d86c)
+![QRCode-PIX-MercadoPago](https://github.com/user-attachments/assets/6b301bd4-4ff0-4406-925c-691c1d48c188)
 
 44ee3ade-c572-42a0-9fcf-64f606b302e8
 
